@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CYBER PULSE: LOGIC COLLAPSE</title>
+    <style>
+        :root {
+            --neon-blue: #00f3ff;
+            --neon-pink: #ff00ff;
+            --bg-dark: #0a0a12;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: var(--bg-dark);
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            color: white;
+            user-select: none;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        canvas {
+            display: block;
+            background: radial-gradient(circle at center, #1a1a2e 0%, #0a0a12 100%);
+            cursor: crosshair;
+        }
+
+        /* 顶部 UI 层 */
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            pointer-events: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            padding: 15px 25px;
+            border-radius: 4px;
+            border-left: 4px solid var(--neon-blue);
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.1);
+        }
+
+        .label { font-size: 10px; text-transform: uppercase; letter-spacing: 2px; color: var(--neon-blue); margin-bottom: 5px; }
+        .value { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+        /* 游戏结束弹窗 */
+        #overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(10, 10, 18, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s;
+        }
+
+        #overlay.active { opacity: 1; pointer-events: all; }
+
+        h1 { font-size: 60px; margin: 0; background: linear-gradient(45deg, var(--neon-blue), var(--neon-pink)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0 0 10px rgba(0, 243, 255, 0.5)); }
+        
+        button {
+            margin-top: 30px;
+            padding: 15px 40px;
+            background: transparent;
+            border: 2px solid var(--neon-blue);
+            color: var(--neon-blue);
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+        }
+
+        button:hover {
+            background: var(--neon-blue);
+            color: var(--bg-dark);
+            box-shadow: 0 0 30px var(--neon-blue);
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="ui-layer">
+        <div class="stat-card">
+            <div class="label">Sync Rate</div>
+            <div class="value" id="score">0.00%</div>
+        </div>
+        <div class="stat-card" style="border-left-color: var(--neon-pink);">
+            <div class="label">System Integrity</div>
+            <div id="health-bar" style="width: 150px; height: 8px; background: rgba(255,255,255,0.1); margin-top: 10px; position: relative; overflow: hidden;">
+                <div id="health-fill" style="width: 100%; height: 100%; background: var(--neon-pink); transition: width 0.3s;"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="overlay">
+        <h1 id="status-title">LOGIC COLLAPSE</h1>
+        <p id="final-score">Final Sync: 0%</p>
+        <button onclick="resetGame()">Initialize System</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+</div>
+
+<script>
+/**
+ * CYBER PULSE ENGINE
+ * A minimalist, high-performance game engine built from scratch.
+ */
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const healthFill = document.getElementById('health-fill');
+const overlay = document.getElementById('overlay');
+
+let width, height, player, particles, enemies, fragments, animationId;
+let score = 0;
+let isGameOver = false;
+let shakeTime = 0;
+
+// 核心类：玩家控制的“神经网络核心”
+class Core {
+    constructor() {
+        this.reset();
+    }
+    reset() {
+        this.x = width / 2;
+        this.y = height / 2;
+        this.radius = 20;
+        this.targetX = this.x;
+        this.targetY = this.y;
+        this.health = 100;
+        this.pulseRadius = 0;
+    }
+    update() {
+        // LERP 平滑移动
+        this.x += (this.targetX - this.x) * 0.15;
+        this.y += (this.targetY - this.y) * 0.15;
+        if (this.pulseRadius > 0) this.pulseRadius += 10;
+        if (this.pulseRadius > 300) this.pulseRadius = 0;
+    }
+    draw() {
+        ctx.save();
+        // 外层辉光
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = '#00f3ff';
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.strokeStyle = '#00f3ff';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        
+        // 内层流转感
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius * 0.6, 0, Math.PI * 2);
+        ctx.fillStyle = '#00f3ff';
+        ctx.fill();
+        
+        // 脉冲波
+        if (this.pulseRadius > 0) {
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.pulseRadius, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(0, 243, 255, ${1 - this.pulseRadius/300})`;
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+}
+
+// 敌人类：恶意代码碎片
+class Enemy {
+    constructor() {
+        this.init();
+    }
+    init() {
+        const side = Math.floor(Math.random() * 4);
+        if (side === 0) { this.x = Math.random() * width; this.y = -50; }
+        else if (side === 1) { this.x = width + 50; this.y = Math.random() * height; }
+        else if (side === 2) { this.x = Math.random() * width; this.y = height + 50; }
+        else { this.x = -50; this.y = Math.random() * height; }
+        
+        const angle = Math.atan2(player.y - this.y, player.x - this.x);
+        const speed = 2 + Math.random() * 3 + (score / 1000);
+        this.vx = Math.cos(angle) * speed;
+        this.vy = Math.sin(angle) * speed;
+        this.size = 15 + Math.random() * 10;
+        this.color = '#ff00ff';
+    }
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+    }
+    draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(Date.now() * 0.005);
+        ctx.strokeStyle = this.color;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-this.size/2, -this.size/2, this.size, this.size);
+        ctx.restore();
+    }
+}
+
+// 粒子特效系统
+class Particle {
+    constructor(x, y, color) {
+        this.x = x;
+        this.y = y;
+        this.vx = (Math.random() - 0.5) * 10;
+        this.vy = (Math.random() - 0.5) * 10;
+        this.life = 1;
+        this.color = color;
+    }
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.life -= 0.02;
+    }
+    draw() {
+        ctx.fillStyle = this.color.replace(')', `, ${this.life})`).replace('rgb', 'rgba');
+        ctx.fillRect(this.x, this.y, 2, 2);
+    }
+}
+
+function init() {
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.width = width;
+    canvas.height = height;
+    player = new Core();
+    particles = [];
+    enemies = [];
+    fragments = [];
+}
+
+function spawnEnemy() {
+    if (!isGameOver && Math.random() < 0.05 + (score/5000)) {
+        enemies.push(new Enemy());
+    }
+}
+
+function update() {
+    if (isGameOver) return;
+
+    player.update();
+    spawnEnemy();
+
+    // 屏幕震动
+    if (shakeTime > 0) {
+        ctx.setTransform(1,0,0,1, Math.random()*10 - 5, Math.random()*10 - 5);
+        shakeTime--;
+    } else {
+        ctx.setTransform(1,0,0,1,0,0);
+    }
+
+    enemies.forEach((enemy, i) => {
+        enemy.update();
+        
+        // 碰撞检测：玩家
+        const dist = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+        if (dist < player.radius + enemy.size/2) {
+            player.health -= 10;
+            shakeTime = 10;
+            enemies.splice(i, 1);
+            createExplosion(enemy.x, enemy.y, '#ff00ff');
+            if (player.health <= 0) endGame();
+        }
+
+        // 碰撞检测：脉冲
+        if (player.pulseRadius > 0) {
+            const pDist = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+            if (Math.abs(pDist - player.pulseRadius) < 20) {
+                enemies.splice(i, 1);
+                score += 5;
+                createExplosion(enemy.x, enemy.y, '#00f3ff');
+            }
+        }
+    });
+
+    particles.forEach((p, i) => {
+        p.update();
+        if (p.life <= 0) particles.splice(i, 1);
+    });
+
+    // UI 更新
+    scoreEl.innerText = (score / 10).toFixed(2) + "%";
+    healthFill.style.width = player.health + "%";
+}
+
+function draw() {
+    ctx.clearRect(0, 0, width, height);
+    
+    // 绘制背景装饰线
+    ctx.strokeStyle = 'rgba(0, 243, 255, 0.05)';
+    for(let i=0; i<width; i+=100) {
+        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, height); ctx.stroke();
+    }
+
+    enemies.forEach(e => e.draw());
+    particles.forEach(p => p.draw());
+    player.draw();
+
+    animationId = requestAnimationFrame(() => {
+        update();
+        draw();
+    });
+}
+
+function createExplosion(x, y, color) {
+    for (let i = 0; i < 15; i++) {
+        particles.push(new Particle(x, y, color === '#ff00ff' ? 'rgb(255,0,255)' : 'rgb(0,243,255)'));
+    }
+}
+
+function endGame() {
+    isGameOver = true;
+    overlay.classList.add('active');
+    document.getElementById('status-title').innerText = "SYSTEM BREACHED";
+    document.getElementById('final-score').innerText = "Final Sync: " + (score/10).toFixed(2) + "%";
+}
+
+function resetGame() {
+    score = 0;
+    isGameOver = false;
+    overlay.classList.remove('active');
+    init();
+}
+
+// 交互控制
+window.addEventListener('mousemove', (e) => {
+    player.targetX = e.clientX;
+    player.targetY = e.clientY;
+});
+
+window.addEventListener('mousedown', () => {
+    if (!isGameOver && player.pulseRadius === 0) {
+        player.pulseRadius = 1;
+    }
+});
+
+window.addEventListener('resize', init);
+
+// 启动
+init();
+draw();
+</script>
+</body>
+</html>
